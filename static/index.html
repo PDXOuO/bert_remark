@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BERT 智能中文情感分析系统</title>
+    <!-- 引入 Tailwind CSS (颜值担当) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 Chart.js (图表担当) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- 引入 FontAwesome (图标担当) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: '#4F46E5', // 靛蓝色
+                    },
+                    backdropBlur: {
+                        xs: '2px',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* 自定义动态背景 */
+        body {
+            background: linear-gradient(-45deg, #ee7752, #e73c7e, #23a6d5, #23d5ab);
+            background-size: 400% 400%;
+            animation: gradient 15s ease infinite;
+        }
+        @keyframes gradient {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        /* 毛玻璃效果 */
+        .glass {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+        }
+        /* 加载动画 */
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #4F46E5;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        /* 结果区域显现动画 */
+        #resultArea {
+            transition: all 0.5s ease-out;
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        #resultArea.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4 md:p-8">
+
+    <!-- 主容器 (毛玻璃卡片) -->
+    <div class="glass w-full max-w-6xl rounded-3xl shadow-2xl overflow-hidden grid grid-cols-1 md:grid-cols-12 gap-0">
+
+        <!-- 左侧：输入与控制区域 (40%) -->
+        <div class="md:col-span-5 p-8 border-r border-gray-200/50">
+            <div class="flex items-center gap-3 mb-8">
+                <div class="bg-brand text-white p-3 rounded-xl shadow-lg">
+                    <i class="fas fa-brain text-2xl"></i>
+                </div>
+                <h1 class="text-3xl font-extrabold text-gray-900 tracking-tight">
+                    基于bert微调的评论情感分析系统 <span class="text-xs font-mono text-brand/70 block">v1.0 ChnSentiCorp</span>
+                </h1>
+            </div>
+
+
+            <div class="relative mb-6">
+                <textarea id="userInput"
+                    class="w-full p-5 border border-gray-200 rounded-2xl focus:ring-4 focus:ring-brand/20 focus:border-brand outline-none transition resize-none bg-white/50 text-gray-800"
+                    rows="8"
+                    placeholder="例如：这家酒店的服务态度非常好，房间也很干净，下次还会来！"></textarea>
+                <span id="charCount" class="absolute bottom-4 right-4 text-xs text-gray-400 font-mono">0 字</span>
+            </div>
+
+            <button onclick="analyze()" id="btn"
+                class="w-full flex items-center justify-center gap-3 bg-brand hover:bg-indigo-700 text-white font-bold py-4 rounded-2xl transition duration-300 shadow-lg shadow-brand/30 hover:shadow-indigo-700/50 transform hover:-translate-y-0.5 active:translate-y-0">
+                <i class="fas fa-search"></i>
+                <span id="btnText">开始智能识别</span>
+                <div id="btnLoader" class="loader hidden"></div>
+            </button>
+        </div>
+
+        <!-- 右侧：结果展示区域 (60%) -->
+        <div class="md:col-span-7 p-8 bg-white/30">
+            <div id="placeholderArea" class="h-full flex flex-col items-center justify-center text-center text-gray-500 py-20">
+                <i class="fas fa-robot text-7xl mb-6 opacity-30"></i>
+                <h3 class="text-xl font-bold mb-2">等待分析</h3>
+                <p>在左侧输入文本并点击识别，<br>分析结果将在此处通过图表生动呈现。</p>
+            </div>
+
+            <div id="resultArea" class="hidden h-full flex flex-col">
+                <div class="flex items-center justify-between mb-8 pb-4 border-b border-gray-200">
+                    <h2 class="text-2xl font-bold text-gray-800">分析报告</h2>
+                    <div id="labelBadge" class="px-6 py-2 rounded-full font-black text-xl flex items-center gap-2 shadow-inner">
+                        <!-- 由 JS 填充 -->
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 flex-grow">
+                    <!-- 1. 置信度卡片 -->
+                    <div class="bg-white/70 rounded-2xl p-6 shadow-sm border border-gray-100/50 flex flex-col justify-between">
+                        <div class="text-sm text-gray-500 mb-2">整体置信度</div>
+                        <div class="text-5xl font-black text-brand tracking-tight mb-4" id="confText">0%</div>
+                        <div class="w-full bg-gray-200 rounded-full h-3 relative">
+                            <div id="confBar" class="bg-brand h-3 rounded-full transition-all duration-500" style="width: 0%"></div>
+                        </div>
+                    </div>
+
+                    <!-- 2. 图表卡片 -->
+                    <div class="bg-white/70 rounded-2xl p-6 shadow-sm border border-gray-100/50">
+                        <div class="text-sm text-gray-500 mb-1 flex justify-between">
+                            <span>正面 vs 负面 概率</span>
+                            <i class="fas fa-chart-pie"></i>
+                        </div>
+                        <div class="h-40 flex items-center justify-center">
+                            <canvas id="probChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- 3. 元数据卡片 -->
+                    <div class="bg-white/70 rounded-2xl p-6 shadow-sm border border-gray-100/50 lg:col-span-2 grid grid-cols-3 gap-4 text-center">
+                        <div class="border-r border-gray-100">
+                            <div class="text-xs text-gray-400 mb-1">推理耗时</div>
+                            <div class="text-xl font-bold text-gray-700"><span id="metaTime" class="font-mono">0</span> ms</div>
+                        </div>
+                        <div class="border-r border-gray-100">
+                            <div class="text-xs text-gray-400 mb-1">输入字数</div>
+                            <div class="text-xl font-bold text-gray-700"><span id="metaLen" class="font-mono">0</span></div>
+                        </div>
+                        <div>
+                            <div class="text-xs text-gray-400 mb-1">模型</div>
+                            <div class="text-sm font-semibold text-gray-700">BERT-base-Chn</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 初始化 Chart.js
+        let probChart = null;
+        const ctx = document.getElementById('probChart').getContext('2d');
+
+        // 字数统计
+        document.getElementById('userInput').addEventListener('input', function(e) {
+            document.getElementById('charCount').innerText = e.target.value.length + ' 字';
+        });
+
+        async function analyze() {
+            const text = document.getElementById('userInput').value;
+            const btn = document.getElementById('btn');
+            const btnText = document.getElementById('btnText');
+            const btnLoader = document.getElementById('btnLoader');
+            const placeholderArea = document.getElementById('placeholderArea');
+            const resultArea = document.getElementById('resultArea');
+            const labelBadge = document.getElementById('labelBadge');
+
+            if (!text.strip()) return alert("写点什么吧！内容不能为空。");
+
+            // 1. 状态：加载中
+            btn.disabled = true;
+            btnText.classList.add('hidden');
+            btnLoader.classList.remove('hidden');
+
+            try {
+                // 模拟一个较长的请求时间，展示动画 (正式环境可删除这行)
+                // await new Promise(resolve => setTimeout(resolve, 800));
+
+                const response = await fetch('/predict', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: text })
+                });
+
+                const resData = await response.json();
+
+                if (resData.status !== 'success') throw new Error("API 错误");
+                const data = resData.data;
+
+                // 2. 更新界面：显示结果区域
+                placeholderArea.classList.add('hidden');
+                resultArea.classList.remove('hidden');
+                // 触发显现动画
+                setTimeout(() => resultArea.classList.add('show'), 50);
+
+                // 3. 填充数据
+                // 3.1 标签和样式
+                if (data.label_id === 1) { // 正面
+                    labelBadge.innerHTML = '<i class="fas fa-smile text-2xl"></i> 正面反馈';
+                    labelBadge.className = "px-6 py-2 rounded-full font-black text-xl flex items-center gap-2 shadow-inner bg-green-100 text-green-800";
+                } else { // 负面
+                    labelBadge.innerHTML = '<i class="fas fa-frown text-2xl"></i> 负面情绪';
+                    labelBadge.className = "px-6 py-2 rounded-full font-black text-xl flex items-center gap-2 shadow-inner bg-red-100 text-red-800";
+                }
+
+                // 3.2 置信度
+                const confPercent = (data.confidence * 100).toFixed(1) + '%';
+                document.getElementById('confText').innerText = confPercent;
+                // 动画效果，需要一点延迟
+                setTimeout(() => {
+                    document.getElementById('confBar').style.width = confPercent;
+                }, 100);
+
+                // 3.3 元数据
+                document.getElementById('metaTime').innerText = data.infer_time_ms;
+                document.getElementById('metaLen').innerText = data.text_len;
+
+                // 3.4 图表更新
+                updateChart(data.prob_pos, data.prob_neg);
+
+            } catch (error) {
+                console.error(error);
+                alert("请求失败，请检查后端服务是否启动。");
+            } finally {
+                // 4. 状态：恢复
+                btn.disabled = false;
+                btnText.classList.remove('hidden');
+                btnLoader.classList.add('hidden');
+            }
+        }
+
+        // 用于删除文本两端空格的原生方法补充
+        String.prototype.strip = function() {
+            return this.replace(/^\s+|\s+$/g, '');
+        };
+
+        function updateChart(posProb, negProb) {
+            const data = {
+                labels: ['正面 (Pos)', '负面 (Neg)'],
+                datasets: [{
+                    data: [posProb, negProb],
+                    backgroundColor: [
+                        'rgba(34, 197, 94, 0.8)', // Tailwind green-500
+                        'rgba(239, 68, 68, 0.8)'  // Tailwind red-500
+                    ],
+                    borderColor: [
+                        '#ffffff',
+                        '#ffffff'
+                    ],
+                    borderWidth: 2,
+                    hoverOffset: 10
+                }]
+            };
+
+            if (probChart) {
+                // 更新现有图表
+                probChart.data = data;
+                probChart.update();
+            } else {
+                // 第一次创建图表
+                probChart = new Chart(ctx, {
+                    type: 'doughnut', // 甜甜圈图
+                    data: data,
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                                labels: {
+                                    boxWidth: 12,
+                                    font: { size: 11 }
+                                }
+                            }
+                        },
+                        layout: {
+                            padding: 0
+                        }
+                    }
+                });
+            }
+        }
+    </script>
+</body>
+</html>

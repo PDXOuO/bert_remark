@@ -87,4 +87,4 @@ Hugging Face Transformers 官方文档
 ChnSentiCorp 数据集
 
 ## 项目预览
-![页面截图](./assets/demo.png)
+![页面截图](./assets/demo.jpg)

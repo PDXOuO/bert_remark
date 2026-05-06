@@ -13,6 +13,10 @@
 - 自动保存最优模型
 - 提供准确率和 F1 分数评估
 
+## 项目预览
+
+![页面截图](./assets/demo.jpg)
+
 ## 环境要求
 
 - Python 3.9+
@@ -86,5 +90,4 @@ TODO
 Hugging Face Transformers 官方文档
 ChnSentiCorp 数据集
 
-## 项目预览
-![页面截图](./assets/demo.jpg)
+
